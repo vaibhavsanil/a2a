@@ -1,0 +1,32 @@
+graph TD
+    %% Define Nodes
+    Req([User Request]) --> Guard[input_guardrail]
+    
+    Guard -->|Blocked| Safe[safe_response]
+    Guard -->|Passed| Plan[skill_planner]
+    
+    Plan --> Valid[plan_validator]
+    
+    Valid -->|Failed Validation| Clarify[clarify_or_escalate]
+    Valid -->|Passed Validation| Exec[skill_executor]
+    
+    Exec --> Synth[synthesis]
+    
+    %% Ends
+    Safe --> END([END])
+    Clarify --> END
+    Synth --> END
+    
+    %% Custom Styling for Modern Design
+    classDef default fill:#1e1e24,stroke:#3b3b4f,stroke-width:1px,color:#dcdcdc;
+    classDef entry fill:#112233,stroke:#0066cc,stroke-width:2px,color:#66b2ff;
+    classDef block fill:#331111,stroke:#cc3333,stroke-width:2px,color:#ff6666;
+    classDef pass fill:#113311,stroke:#33cc33,stroke-width:2px,color:#66ff66;
+    classDef process fill:#221133,stroke:#aa33cc,stroke-width:1px,color:#df99f2;
+    classDef endStyle fill:#000000,stroke:#888,stroke-width:1px,color:#aaa;
+    
+    class Req,Guard entry;
+    class Safe,Clarify block;
+    class Exec pass;
+    class Plan,Valid,Synth process;
+    class END endStyle;
