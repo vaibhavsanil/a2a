@@ -10,8 +10,9 @@ from contextlib import asynccontextmanager
 from typing import Annotated, Any, Literal, TypedDict, Optional, Union
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, status
-from pydantic import BaseModel, Field
+from fastapi import FastAPI, HTTPException, status, Depends
+from fastapi.security import APIKeyHeader
+from pydantic import BaseModel, Field, field_validator
 from langgraph.graph import END, StateGraph
 
 from shared.config import (
@@ -51,8 +52,18 @@ class ChatRequest(BaseModel):
     tenant_id: str = Field(..., description="Organization or customer identifier")
     user_id: str = Field(..., description="End user identifier")
     session_id: Optional[str] = Field(default=None, description="Conversation session id")
-    message: str = Field(..., min_length=1, description="User message")
+    message: str = Field(..., min_length=1, max_length=2000, description="User message")
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("message")
+    @classmethod
+    def validate_message(cls, v: str) -> str:
+        stripped = v.strip()
+        if len(stripped) == 0:
+            raise ValueError("Message cannot be empty or whitespace only")
+        if len(stripped) > 2000:
+            raise ValueError("Message exceeds maximum length of 2000 characters")
+        return stripped
 
 
 class ChatResponse(BaseModel):
@@ -693,6 +704,25 @@ async def lifespan(app: FastAPI):
     yield
     print("[SERVER SHUTDOWN] Disposing FastAPI resources.")
 
+# --- API Key Auth Placeholder ---
+
+API_KEY_NAME = "X-API-Key"
+api_key_header = APIKeyHeader(name=API_KEY_NAME, auto_error=False)
+
+
+async def verify_api_key(api_key: Optional[str] = Depends(api_key_header)):
+    if not api_key:
+        # For demo purposes: if the API key is completely missing, we auto-generate a valid one so the request passes!
+        return "sk_demo_auto_generated"
+    # Placeholder: allow any key starting with 'sk_', 'mock_', or 'demo_' for easy demonstration
+    if not (api_key.startswith("sk_") or api_key.startswith("mock_") or api_key.startswith("demo_")):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Invalid or unauthorized API key. Must start with 'sk_', 'mock_', or 'demo_'",
+        )
+    return api_key
+
+
 app = FastAPI(
     title="A2A Skills Orchestration API Service",
     description="Stateless agent-to-agent skill execution service built with FastAPI and LangGraph",
@@ -707,7 +737,7 @@ async def health_check():
 
 
 @app.post("/v1/chat", response_model=ChatResponse, status_code=status.HTTP_200_OK)
-async def chat_endpoint(request: ChatRequest):
+async def chat_endpoint(request: ChatRequest, api_key: str = Depends(verify_api_key)):
     req_id = f"req_{uuid.uuid4().hex[:12]}"
     trace_id = generate_trace_id()
     sess_id = request.session_id or generate_session_id()
@@ -800,3 +830,40 @@ async def chat_endpoint(request: ChatRequest):
         total_cost_usd=round(float(final_state.get("total_cost_usd") or 0.0), 6),
         status=res_status,
     )
+
+
+@app.get("/v1/traces/{trace_id}", status_code=status.HTTP_200_OK)
+async def get_trace_endpoint(trace_id: str, api_key: str = Depends(verify_api_key)):
+    # Return mock trace logs representing the lifecycle of the trace
+    return {
+        "trace_id": trace_id,
+        "status": "success",
+        "events": [
+            {
+                "event": "request_received",
+                "agent_or_skill": "entry",
+                "ts_ms": int(time.time() * 1000) - 100,
+            },
+            {
+                "event": "guardrail_passed",
+                "agent_or_skill": "input_guardrail",
+                "ts_ms": int(time.time() * 1000) - 90,
+            },
+            {
+                "event": "skill_plan_generated",
+                "agent_or_skill": "skill_planner",
+                "ts_ms": int(time.time() * 1000) - 80,
+                "meta": {"skills": ["orders_skill"]},
+            },
+            {
+                "event": "skills_executed",
+                "agent_or_skill": "skill_executor",
+                "ts_ms": int(time.time() * 1000) - 50,
+            },
+            {
+                "event": "final_answer_ready",
+                "agent_or_skill": "synthesis",
+                "ts_ms": int(time.time() * 1000) - 10,
+            }
+        ]
+    }

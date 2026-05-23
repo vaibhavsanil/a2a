@@ -115,11 +115,100 @@ def test_policy_escalation(client: TestClient) -> None:
     print("✔ Policy Escalation Test Passed successfully!")
 
 
+def test_auth_failures(client: TestClient) -> None:
+    print("Running API Key Auth Failure Tests...")
+    
+    # 1. Missing API Key header
+    clean_client = TestClient(app)
+    res_missing = clean_client.post(
+        "/v1/chat",
+        json={
+            "tenant_id": "org_netflix",
+            "user_id": "usr_vaibhav",
+            "message": "hello",
+        }
+    )
+    assert res_missing.status_code == 401, f"Expected 401, got {res_missing.status_code}"
+    
+    # 2. Invalid API Key
+    res_invalid = clean_client.post(
+        "/v1/chat",
+        json={
+            "tenant_id": "org_netflix",
+            "user_id": "usr_vaibhav",
+            "message": "hello",
+        },
+        headers={"X-API-Key": "invalid_key"}
+    )
+    assert res_invalid.status_code == 403, f"Expected 403, got {res_invalid.status_code}"
+    print("✔ API Key Auth Failure Tests Passed successfully!")
+
+
+def test_message_validations(client: TestClient) -> None:
+    print("Running Message Field Validation Tests...")
+    
+    # 1. Whitespace only message
+    payload_whitespace = {
+        "tenant_id": "org_netflix",
+        "user_id": "usr_vaibhav",
+        "message": "   \n   ",
+    }
+    response = client.post("/v1/chat", json=payload_whitespace)
+    assert response.status_code == 422, f"Expected 422, got {response.status_code}"
+    
+    # 2. Empty message
+    payload_empty = {
+        "tenant_id": "org_netflix",
+        "user_id": "usr_vaibhav",
+        "message": "",
+    }
+    response2 = client.post("/v1/chat", json=payload_empty)
+    assert response2.status_code == 422, f"Expected 422, got {response2.status_code}"
+    
+    # 3. Very long message (> 2000 chars)
+    payload_long = {
+        "tenant_id": "org_netflix",
+        "user_id": "usr_vaibhav",
+        "message": "A" * 2001,
+    }
+    response3 = client.post("/v1/chat", json=payload_long)
+    assert response3.status_code == 422, f"Expected 422, got {response3.status_code}"
+    print("✔ Message Field Validation Tests Passed successfully!")
+
+
+def test_get_trace(client: TestClient) -> None:
+    print("Running Retrieve Mock Trace Endpoint Test...")
+    trace_id = "tr_mock_998877"
+    response = client.get(f"/v1/traces/{trace_id}")
+    assert response.status_code == 200, f"Expected 200, got {response.status_code}"
+    
+    data = response.json()
+    print("Trace Response Data:")
+    print(json.dumps(data, indent=2))
+    
+    assert data["trace_id"] == trace_id
+    assert data["status"] == "success"
+    assert "events" in data
+    assert len(data["events"]) == 5
+    for ev in data["events"]:
+        assert "event" in ev
+        assert "agent_or_skill" in ev
+        assert "ts_ms" in ev
+    print("✔ Retrieve Mock Trace Endpoint Test Passed successfully!")
+
+
 def run_all_tests() -> None:
     print_banner("A2A FASTAPI SERVICE INTEGRATION TEST SUITE")
     
     with TestClient(app) as client:
+        # Set default headers for authenticated routes
+        client.headers.update({"X-API-Key": "sk_test_123"})
+        
         test_health_check(client)
+        print("-" * 50)
+        test_auth_failures(client)
+        print("-" * 50)
+        test_message_validations(client)
         print("-" * 50)
         test_standard_query(client)
         print("-" * 50)
@@ -128,6 +217,8 @@ def run_all_tests() -> None:
         test_payment_upgrade_with_policy(client)
         print("-" * 50)
         test_policy_escalation(client)
+        print("-" * 50)
+        test_get_trace(client)
         
     print_banner("ALL TESTS PASSED SUCCESSFULLY!")
 
